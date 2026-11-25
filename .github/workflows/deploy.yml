@@ -1,19 +1,40 @@
-# Push to main -> build the image on GitHub -> push it to GHCR -> tell Dokploy to redeploy.
+# Push to main -> run the self-check -> build the image on GitHub -> push it to GHCR -> tell Dokploy to redeploy.
 # The VPS never builds: it only pulls ghcr.io/pyvnoaim/nobg:latest (pull_policy: always in Dokploy).
 # Every build is also tagged with its short sha, so a rollback is changing the tag in Dokploy.
+# Pull requests (Dependabot's included) run the self-check only.
 name: deploy
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# Per ref, so a pull request run never cancels a deploy.
 concurrency:
-  group: deploy
+  group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+
+      - name: Self-check
+        run: uv run --locked test_remove_bg.py
+
+  # Needs the check, so a failing check means nothing is built or deployed.
   deploy:
+    needs: check
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

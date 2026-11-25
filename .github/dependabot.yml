@@ -5,3 +5,24 @@ updates:
     directory: /
     schedule:
       interval: monthly
+
+  # Keeps the exact pins in pyproject.toml and uv.lock current: one grouped PR per month.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      python:
+        patterns:
+          - "*"
+
+  # Keeps the Dockerfile base image current. Python stays on 3.12, so only patch bumps.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    ignore:
+      - dependency-name: python
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor

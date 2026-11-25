@@ -9,7 +9,7 @@ services:
     ports:
       - "7860:7860"
     volumes:
-      - models:/models    # 170MB model cache — survives restarts, downloads once
+      - models:/models    # 180MB model cache, downloads once, survives restarts
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:7860/')"]
       interval: 30s

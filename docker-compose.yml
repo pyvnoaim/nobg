@@ -23,7 +23,7 @@ services:
     memswap_limit: 3g
     cpus: 2.0
     volumes:
-      - models:/models   # ~180MB model cache, downloads once, survives restarts
+      - models:/models   # 180MB model cache, downloads once, survives restarts
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:7860/')"]
       interval: 30s
