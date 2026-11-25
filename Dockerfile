@@ -1,5 +1,5 @@
 # A named stage, so Dependabot sees the uv pin. It only reads FROM lines.
-FROM ghcr.io/astral-sh/uv:0.12.15 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.10 AS uv
 
 FROM python:3.12-slim
 
