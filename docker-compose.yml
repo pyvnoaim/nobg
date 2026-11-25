@@ -1,0 +1,40 @@
+# nobg as it runs in Dokploy (Compose > Raw). Keep this file and the Dokploy copy identical.
+# The image comes from .github/workflows/deploy.yml on every push to main. No published port: the proxy reaches
+# remove-bg:7860 over the shared `websites` network. Run it locally with the .venv instead (see README).
+services:
+  remove-bg:
+    image: ghcr.io/pyvnoaim/nobg:latest
+    pull_policy: always   # each deploy fetches the newest build
+    container_name: remove-bg
+    restart: unless-stopped
+    networks: [websites]
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OMP_NUM_THREADS=2
+      - OPENBLAS_NUM_THREADS=2
+      - MKL_NUM_THREADS=2
+      - MALLOC_ARENA_MAX=2
+      - MALLOC_TRIM_THRESHOLD_=131072
+      - NUMBA_NUM_THREADS=2
+    # isnet-general-use peaks ~1.6GB on a 12MP image (measured). If the limit is hit the
+    # kernel kills python mid-request -> UI shows "Connection to the server was lost".
+    # No tmpfs /tmp: tmpfs pages count against this same limit.
+    mem_limit: 3g
+    memswap_limit: 3g
+    cpus: 2.0
+    volumes:
+      - models:/models   # ~180MB model cache, downloads once, survives restarts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:7860/')"]
+      interval: 30s
+      timeout: 60s
+      start_period: 60s
+      retries: 3
+
+networks:
+  websites:
+    external: true
+
+volumes:
+  models:
+    name: remove-bg_models   # fixed name, so it is the same volume whatever the compose project is called
