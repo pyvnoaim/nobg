@@ -1,66 +1,75 @@
-# Local Background Remover
+# nobg
 
-Gradio UI over `rembg`. Two removal modes: AI (isnet-general-use, for complex
-backgrounds) and color-threshold (pixel-perfect on solid-color product shots).
+Self-hosted background remover with a web UI, built on [rembg](https://github.com/danielgatis/rembg) and [Gradio](https://www.gradio.app).
 
-Why not birefnet-general: 1GB download and 8–13GB peak RAM — it was OOM-killed
-on the VPS ("Connection to the server was lost"). isnet peaks ~1.6GB.
+| Mode | Use it for | How it works |
+| --- | --- | --- |
+| AI | Complex or unknown backgrounds | `isnet-general-use` segmentation model |
+| Color | Product shots on a solid background | Color threshold, pixel-exact, no model |
 
-## Run locally
+Images come from upload, clipboard, or a URL dragged in from another page.
+
+## Run
+
+Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-.venv/bin/python remove_bg.py      # opens http://localhost:7860
-.venv/bin/python test_remove_bg.py # self-check on the color-mask math
+uv run remove_bg.py        # http://localhost:7860
+uv run test_remove_bg.py   # self-check
 ```
 
-The AI model (~170MB) downloads on first *AI* use, not at startup — color mode
-never touches it.
+With Docker:
+
+```bash
+docker compose -f docker-compose.local.yml up --build
+```
+
+The AI model (about 180 MB) downloads on first use of AI mode. Color mode never needs it.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `APP_AUTH` | unset | `user:password` enables the built-in login |
+| `U2NET_HOME` | `/models` in the image | Model cache directory |
+
+## Limits
+
+- Images over 40 megapixels or 50 MB are refused.
+- URL fetches accept only `http` and `https` and only publicly routable hosts.
+- AI mode peaks at about 1.6 GB RAM on a 12 MP image. The container limit is 3 GB.
+- `birefnet-general` gives cleaner edges but needs 8 to 13 GB RAM, so it is not used.
 
 ## Deploy
 
-A push to `main` runs `.github/workflows/deploy.yml`: GitHub builds the image (x86_64, so nothing to cross-build on
-the Mac), pushes it to `ghcr.io/pyvnoaim/nobg` (`:latest` + `:sha-<short>`), then calls the Dokploy deploy webhook
-(repo secret `DOKPLOY_WEBHOOK`). Dokploy pulls `:latest` and restarts. `docker-compose.yml` is exactly the file
-Dokploy runs (Compose > Raw); `docker-compose.local.yml` is for running it on the Mac. Rollback: point the image in
-Dokploy at an older `:sha-` tag and deploy.
+A push to `main` runs `.github/workflows/deploy.yml`:
 
-## Reaching it
+1. GitHub builds the `linux/amd64` image.
+2. The image is pushed to `ghcr.io/pyvnoaim/nobg` as `:latest` and `:sha-<short>`.
+3. The Dokploy webhook (repo secret `DOKPLOY_WEBHOOK`) triggers a redeploy.
 
-The container publishes **no host port**. It joins the external `websites`
-network and the proxy routes to it by container name. Whatever the proxy is,
-it needs what the NPM settings below spell out: websockets/SSE unbuffered,
-100 MB uploads, 300 s timeouts, and a login in front.
+`docker-compose.yml` is the exact file Dokploy runs. To roll back, point the image at an older `:sha-` tag and redeploy.
 
-NPM → Hosts → Proxy Hosts → Add Proxy Host:
+## Reverse proxy
 
-- Domain: your subdomain (use a subdomain, not a subpath — a subpath needs
-  Gradio's `root_path` set as well)
-- Scheme `http`, Forward Hostname `remove-bg`, Forward Port `7860`
-- **Websockets Support: ON** — Gradio's event queue needs it; without it the UI
-  loads but every button hangs
-- SSL tab: request a Let's Encrypt cert, Force SSL
-- Advanced tab:
+The container publishes no host port. It joins the external `websites` network and is reached as `remove-bg:7860`.
 
-  ```nginx
-  client_max_body_size 100m;   # default rejects anything but tiny images
-  proxy_read_timeout 300s;     # AI mode on CPU can exceed the 60s default
-  proxy_send_timeout 300s;
-  proxy_buffering off;         # Gradio's queue is SSE — buffering breaks it
-  proxy_cache off;             # symptom: "Connection errored out" after upload
-  ```
+The proxy must provide:
 
-Put an NPM **Access List** (basic auth) on the proxy host — it's public once it
-has a domain. Details tab: leave *Satisfy Any* and *Pass Auth to Upstream* off.
-Authorizations tab: add the user/password. **Rules tab: add `Allow 0.0.0.0/0`** —
-leaving it empty does *not* mean "any IP"; NPM appends a `deny all` and you get a
-flat `403` for everyone, credentials or not. Correct setup answers `401` with a
-`www-authenticate` header. Alternatively set `APP_AUTH=user:password` in the Dokploy env for
-Gradio's own login; the Access List is easier since it needs no rebuild.
+- WebSocket support. Without it the UI loads but every button hangs.
+- Unbuffered responses, 100 MB request bodies, and 300 s timeouts.
+- Authentication, unless `APP_AUTH` is set.
 
-To debug without NPM, temporarily add `ports: ["127.0.0.1:7860:7860"]` to the
-stack and tunnel in with
-`ssh -L 7860:localhost:7860 user@host`.
+For nginx or Nginx Proxy Manager (Advanced tab):
 
-## Volumes
+```nginx
+client_max_body_size 100m;
+proxy_read_timeout 300s;
+proxy_send_timeout 300s;
+proxy_buffering off;
+proxy_cache off;
+```
 
-- `models:/models` — model cache (`U2NET_HOME`), so the 170MB survives restarts
+With a Nginx Proxy Manager Access List, add `Allow 0.0.0.0/0` under Rules. An empty rule list denies everyone with a `403`.
+
+To debug without the proxy, add `ports: ["127.0.0.1:7860:7860"]` to the stack and open an SSH tunnel to port 7860.

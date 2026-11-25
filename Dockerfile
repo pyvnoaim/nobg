@@ -6,8 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=ghcr.io/astral-sh/uv:0.12.15 /uv /bin/uv
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-cache
+ENV PATH="/app/.venv/bin:$PATH"
 COPY remove_bg.py .
 
 ENV U2NET_HOME=/models

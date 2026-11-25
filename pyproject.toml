@@ -1,0 +1,11 @@
+[project]
+name = "nobg"
+version = "0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "rembg==2.0.76",
+    "onnxruntime==1.27.0",
+    "gradio==6.20.0",
+    "pillow==12.3.0",
+    "numpy==2.4.6",
+]

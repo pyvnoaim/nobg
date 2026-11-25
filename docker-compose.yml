@@ -1,6 +1,6 @@
 # nobg as it runs in Dokploy (Compose > Raw). Keep this file and the Dokploy copy identical.
 # The image comes from .github/workflows/deploy.yml on every push to main. No published port: the proxy reaches
-# remove-bg:7860 over the shared `websites` network. Run it locally with the .venv instead (see README).
+# remove-bg:7860 over the shared `websites` network. Run it locally with uv instead (see README).
 services:
   remove-bg:
     image: ghcr.io/pyvnoaim/nobg:latest

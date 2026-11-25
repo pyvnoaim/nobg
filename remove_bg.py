@@ -1,11 +1,8 @@
 """
 Local Background Remover
 ========================
-Requirements:
-    pip install rembg gradio pillow onnxruntime
-
 Run:
-    python remove_bg.py
+    uv run remove_bg.py
 
 Then open http://localhost:7860 in your browser.
 First run will download the model (~170MB), after that it's instant.
