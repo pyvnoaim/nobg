@@ -1,0 +1,20 @@
+# Local run with Docker: docker compose -f docker-compose.local.yml up --build
+# (docker-compose.yml is the production file Dokploy runs.)
+services:
+  remove-bg:
+    build: .
+    image: remove-bg:latest
+    container_name: remove-bg
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    volumes:
+      - models:/models    # 170MB model cache — survives restarts, downloads once
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:7860/')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+volumes:
+  models:
