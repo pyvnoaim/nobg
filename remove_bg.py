@@ -23,13 +23,14 @@ import os
 import socket
 import urllib.parse
 import urllib.request
-import warnings
 
 # A tiny file can declare a huge canvas (a decompression bomb): the 50MB fetch cap and the upload limit only see the
-# file, not the pixels. Pillow checks the declared size before decoding, so cap it here, for uploads and URLs alike.
+# file, not the pixels. URL images get an explicit check in _decode. Uploads are decoded by Gradio, so they rely on
+# Pillow's hard DecompressionBombError, which fires at twice MAX_IMAGE_PIXELS and, unlike the warning below that,
+# can't be switched off by a library resetting the warnings filters under concurrent requests.
 # ponytail: 40MP covers any camera photo; isnet peaked ~1.6GB at 12MP, raise with care against the 3g mem_limit.
-Image.MAX_IMAGE_PIXELS = 40_000_000
-warnings.simplefilter("error", Image.DecompressionBombWarning)
+MAX_PIXELS = 40_000_000
+Image.MAX_IMAGE_PIXELS = MAX_PIXELS // 2
 
 # isnet: 179MB, 1024² input, mask upscaled to full res. birefnet-general is cleaner
 # but a 1GB download and peaks at 8-13GB RAM — it got OOM-killed on the VPS.
@@ -130,9 +131,12 @@ def load_url(url):
 
 def _decode(data):
     try:
-        return np.array(Image.open(io.BytesIO(data)).convert("RGBA"))
-    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+        img = Image.open(io.BytesIO(data))  # reads the header only, nothing is decoded yet
+    except Image.DecompressionBombError:
         raise gr.Error("Image is larger than 40 megapixels.")
+    if img.width * img.height > MAX_PIXELS:
+        raise gr.Error("Image is larger than 40 megapixels.")
+    return np.array(img.convert("RGBA"))
 
 
 def remove_bg_ai(input_image, output_format):
