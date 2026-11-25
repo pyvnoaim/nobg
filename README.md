@@ -5,9 +5,11 @@ Self-hosted background remover with a web UI, built on [rembg](https://github.co
 | Mode | Use it for | How it works |
 | --- | --- | --- |
 | AI | Complex or unknown backgrounds | `isnet-general-use` segmentation model |
-| Color | Product shots on a solid background | Color threshold, pixel-exact, no model |
+| Solid color | Product shots on a solid background | Color threshold on pixels connected to the image border, enclosed areas optional, no model |
 
 Images come from upload, clipboard, or a URL dragged in from another page.
+
+![Solid color mode removing a white background while keeping the white label](docs/screenshot.png)
 
 ## Run
 
@@ -24,7 +26,7 @@ With Docker:
 docker compose -f docker-compose.local.yml up --build
 ```
 
-The AI model (about 180 MB) downloads on first use of AI mode. Color mode never needs it.
+The AI model (about 180 MB) downloads on first use of AI mode. Solid color mode never needs it.
 
 ## Configuration
 
@@ -32,21 +34,24 @@ The AI model (about 180 MB) downloads on first use of AI mode. Color mode never 
 | --- | --- | --- |
 | `APP_AUTH` | unset | `user:password` enables the built-in login |
 | `U2NET_HOME` | `/models` in the image | Model cache directory |
+| `PORT` | `7860` | Port the app listens on |
 
 ## Limits
 
-- Images over 40 megapixels or 50 MB are refused.
+- Images over 40 megapixels are refused.
+- Uploads over 100 MB and URL fetches over 50 MB are refused.
 - URL fetches accept only `http` and `https` and only publicly routable hosts.
 - AI mode peaks at about 1.6 GB RAM on a 12 MP image. The container limit is 3 GB.
 - `birefnet-general` gives cleaner edges but needs 8 to 13 GB RAM, so it is not used.
 
 ## Deploy
 
-A push to `main` runs `.github/workflows/deploy.yml`:
+A push to `main` runs `.github/workflows/deploy.yml`. Pull requests run only step 1.
 
-1. GitHub builds the `linux/amd64` image.
-2. The image is pushed to `ghcr.io/pyvnoaim/nobg` as `:latest` and `:sha-<short>`.
-3. The Dokploy webhook (repo secret `DOKPLOY_WEBHOOK`) triggers a redeploy.
+1. `test_remove_bg.py` runs. A failure stops the deploy.
+2. GitHub builds the `linux/amd64` image.
+3. The image is pushed to `ghcr.io/pyvnoaim/nobg` as `:latest` and `:sha-<short>`.
+4. The Dokploy webhook (repo secret `DOKPLOY_WEBHOOK`) triggers a redeploy.
 
 `docker-compose.yml` is the exact file Dokploy runs. To roll back, point the image at an older `:sha-` tag and redeploy.
 
@@ -73,3 +78,7 @@ proxy_cache off;
 With a Nginx Proxy Manager Access List, add `Allow 0.0.0.0/0` under Rules. An empty rule list denies everyone with a `403`.
 
 To debug without the proxy, add `ports: ["127.0.0.1:7860:7860"]` to the stack and open an SSH tunnel to port 7860.
+
+## License
+
+[MIT](LICENSE)

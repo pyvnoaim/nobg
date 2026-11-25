@@ -19,5 +19,5 @@ uv add <pkg> / uv lock     # deps live in pyproject.toml + uv.lock, both committ
 
 ## Deploy
 
-Push to `main` → GitHub builds x86_64 image → GHCR → Dokploy webhook. Never build on the VPS.
+Push to `main` → self-check passes → GitHub builds x86_64 image → GHCR → Dokploy webhook. Never build on the VPS.
 `docker-compose.yml` must stay identical to the copy pasted in Dokploy. `docker-compose.local.yml` is for the Mac.
