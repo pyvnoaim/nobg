@@ -6,11 +6,13 @@ updates:
     schedule:
       interval: monthly
 
-  # Keeps the exact pins in pyproject.toml and uv.lock current: one grouped PR per month.
+  # Keeps the exact pins in pyproject.toml and uv.lock current: one grouped PR per week.
+  # Weekly because this is also how security fixes arrive. Dependabot's own security PRs are off:
+  # they edit pyproject.toml without uv.lock, so the locked self-check rejects them.
   - package-ecosystem: uv
     directory: /
     schedule:
-      interval: monthly
+      interval: weekly
     groups:
       python:
         patterns:
