@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
 WORKDIR /app
 COPY --from=uv /uv /bin/uv
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-cache
+RUN uv sync --locked --no-cache --compile-bytecode
 ENV PATH="/app/.venv/bin:$PATH"
 COPY remove_bg.py .
 
