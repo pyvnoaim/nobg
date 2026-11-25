@@ -3,10 +3,10 @@ name = "nobg"
 version = "0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "rembg==2.0.76",
-    "onnxruntime==1.27.0",
-    "gradio==6.20.0",
-    "pillow==12.3.0",
-    "numpy==2.4.6",
+    "rembg==2.0.87",
+    "onnxruntime==1.32.0",
+    "gradio==6.32.0",
+    "pillow==13.0.0",
+    "numpy==2.5.5",
     "scipy==1.18.1",
 ]
