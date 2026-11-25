@@ -149,7 +149,7 @@ def remove_bg_ai(input_image, output_format):
 def remove_bg_color(input_image, output_format, tolerance, edge_smooth, edges_only=True):
     """
     Color/threshold-based removal, pixel-perfect for solid color backgrounds.
-    Samples the background color from the 4 corners and removes matching pixels:
+    Samples the background color from the image border and removes matching pixels:
     with edges_only just the ones connected to the image border, so a highlight
     in the background color inside the subject survives. Otherwise all of them.
     Works great for product shots on white/solid backgrounds.
@@ -160,15 +160,10 @@ def remove_bg_color(input_image, output_format, tolerance, edge_smooth, edges_on
     img = Image.fromarray(input_image).convert("RGBA")
     data = np.asarray(img)  # uint8 view, no float copy of the whole image: that tripled peak RAM at 40MP
 
-    # Sample background color from corners (5x5 patch average). Median across the
-    # four, so one corner covered by the subject doesn't skew it.
-    corners = [
-        data[:5, :5],
-        data[:5, -5:],
-        data[-5:, :5],
-        data[-5:, -5:],
-    ]
-    bg_color = np.median([c.mean(axis=(0, 1)) for c in corners], axis=0)[:3]
+    # Background color: per-channel median of the one-pixel frame around the image. It holds as long as
+    # the subject covers less than half of the border, so a bust shot spanning the bottom edge still works.
+    frame = np.concatenate([data[0], data[-1], data[:, 0], data[:, -1]])[:, :3]
+    bg_color = np.median(frame, axis=0)
 
     # Squared per-pixel distance from bg color, one channel at a time to keep the temporaries small
     dist2 = np.zeros(data.shape[:2], dtype=np.float32)

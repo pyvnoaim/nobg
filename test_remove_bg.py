@@ -44,6 +44,13 @@ ac = np.array(remove_bg_color(cov, "PNG (transparent)", 30, 0))[:, :, 3]
 assert ac[0, 39] == 0 and ac[39, 0] == 0 and ac[39, 39] == 0, "uncovered corners should be transparent"
 assert ac[2, 2] == 255, "subject in the corner should stay opaque"
 
+# Same for a subject spanning the whole bottom edge, which covers two corners.
+bust = np.full((40, 40, 3), 255, dtype=np.uint8)
+bust[25:, :] = (255, 0, 0)
+ab = np.array(remove_bg_color(bust, "PNG (transparent)", 30, 0))[:, :, 3]
+assert ab[0, 0] == 0 and ab[0, 39] == 0, "background above the subject should be transparent"
+assert ab[39, 0] == 255 and ab[39, 39] == 255, "subject along the bottom edge should stay opaque"
+
 # "PNG (transparent)" must download as PNG: gr.Image defaults to format="webp".
 import remove_bg  # noqa: E402
 for comp in (remove_bg.output_ai, remove_bg.output_col):
@@ -53,7 +60,7 @@ for comp in (remove_bg.output_ai, remove_bg.output_col):
 # SSRF guard: the fetch runs server-side from a public app, so nothing that
 # resolves off the public internet may be reachable, including via a redirect.
 import socket  # noqa: E402
-from remove_bg import load_url, _public_ip, _HttpOnlyRedirects, _PinnedHTTPConnection, _decode  # noqa: E402
+from remove_bg import load_url, _HttpOnlyRedirects, _PinnedHTTPConnection, _decode  # noqa: E402
 
 for bad in ("http://127.0.0.1:9000/x.png", "http://localhost/x.png",
             "http://169.254.169.254/latest/meta-data/", "http://192.168.1.1/x.png",
