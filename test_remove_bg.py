@@ -74,11 +74,12 @@ except AssertionError:
 except Exception:
     pass
 
-# Decompression bomb: a small file that declares more than 40MP is refused before decoding,
-# whether it comes from a URL (_decode) or an upload (Pillow's own limit, set in remove_bg).
+# Decompression bomb: a small file that declares more than 40MP is refused before decoding, whether it comes from a
+# URL (_decode's explicit check) or an upload (Pillow's hard error, which no warnings filter can switch off).
 import io  # noqa: E402
+import warnings  # noqa: E402
 from PIL import Image  # noqa: E402
-for side in (7000, 9500):  # 49MP: over the limit (warning turned into an error); 90MP: over twice the limit
+for side in (7000, 9500):  # 49MP and 90MP
     buf = io.BytesIO()
     Image.new("1", (side, side)).save(buf, "PNG")
     try:
@@ -88,5 +89,15 @@ for side in (7000, 9500):  # 49MP: over the limit (warning turned into an error)
         raise
     except Exception:
         pass
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # what a library could do mid-request: the upload cap must still hold
+        try:
+            Image.open(io.BytesIO(buf.getvalue())).load()
+            raise AssertionError(f"{side}x{side} upload was decoded with warnings ignored")
+        except Image.DecompressionBombError:
+            pass
+ok = io.BytesIO()
+Image.new("RGB", (300, 200), "red").save(ok, "PNG")
+assert _decode(ok.getvalue()).shape == (200, 300, 4), "a normal image must still decode"
 
 print("ok")
