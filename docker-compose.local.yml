@@ -6,6 +6,9 @@ services:
     image: remove-bg:latest
     container_name: remove-bg
     restart: unless-stopped
+    # The app runs as uid 1000 and only listens on 7860, so it needs no capabilities.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     ports:
       - "7860:7860"
     volumes:

@@ -298,7 +298,8 @@ HEAD = """
 </script>
 """
 
-with gr.Blocks(title="Background Remover", fill_width=True) as app:
+# delete_cache: uploads and results are swept hourly once they are a day old, instead of piling up until the next deploy.
+with gr.Blocks(title="Background Remover", fill_width=True, delete_cache=(3600, 86400)) as app:
     gr.Markdown("# Background Remover")
 
     with gr.Tabs():

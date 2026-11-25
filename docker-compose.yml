@@ -7,6 +7,9 @@ services:
     pull_policy: always   # each deploy fetches the newest build
     container_name: remove-bg
     restart: unless-stopped
+    # The app runs as uid 1000 and only listens on 7860, so it needs no capabilities.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     networks: [websites]
     environment:
       - PYTHONUNBUFFERED=1
