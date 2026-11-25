@@ -8,4 +8,5 @@ dependencies = [
     "gradio==6.20.0",
     "pillow==12.3.0",
     "numpy==2.4.6",
+    "scipy==1.18.1",
 ]

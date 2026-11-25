@@ -5,7 +5,7 @@ Run:
     uv run remove_bg.py
 
 Then open http://localhost:7860 in your browser.
-First run will download the model (~170MB), after that it's instant.
+First run will download the model (about 180MB), after that it's instant.
 """
 
 import gradio as gr
@@ -13,6 +13,7 @@ from gradio.themes import Monochrome  # gradio doesn't re-export `themes` on the
 from rembg import remove, new_session
 from PIL import Image, ImageFilter
 import numpy as np
+from scipy import ndimage  # ships with rembg, which imports it itself
 import http.client
 import io
 import ipaddress
@@ -29,17 +30,17 @@ import urllib.request
 MAX_PIXELS = 40_000_000
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS // 2
 
-# isnet: 179MB, 1024² input, mask upscaled to full res. birefnet-general is cleaner
-# but a 1GB download and peaks at 8-13GB RAM — it got OOM-killed on the VPS.
+# isnet: about 180MB, 1024² input, mask upscaled to full res. birefnet-general is cleaner
+# but a 1GB download and peaks at 8-13GB RAM. It got OOM-killed on the VPS.
 MODEL = "isnet-general-use"
 _session = None
 
 
 def get_session():
-    """Loaded on first AI use — color mode never needs the 170MB download."""
+    """Loaded on first AI use: color mode never needs the 180MB download."""
     global _session
     if _session is None:
-        print(f"Loading model: {MODEL} (first run downloads ~180MB)...")
+        print(f"Loading model: {MODEL} (first run downloads about 180MB)...")
         _session = new_session(MODEL)
         print("Model ready.")
     return _session
@@ -110,7 +111,7 @@ class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
 
 
 def load_url(url):
-    """Dragging an image off a webpage yields its URL, not a file — fetch it here."""
+    """Dragging an image off a webpage yields its URL, not a file. Fetch it here."""
     url = (url or "").strip()
     if not url:
         return None
@@ -137,7 +138,7 @@ def _decode(data):
 
 
 def remove_bg_ai(input_image, output_format):
-    """AI-based removal — good for complex/unknown backgrounds."""
+    """AI-based removal, good for complex/unknown backgrounds."""
     if input_image is None:
         return None
     img = Image.fromarray(input_image)
@@ -145,47 +146,60 @@ def remove_bg_ai(input_image, output_format):
     return apply_output_format(result, output_format)
 
 
-def remove_bg_color(input_image, output_format, tolerance, edge_smooth):
+def remove_bg_color(input_image, output_format, tolerance, edge_smooth, edges_only=True):
     """
-    Color/threshold-based removal — pixel-perfect for solid color backgrounds.
-    Samples the background color from the 4 corners and removes matching pixels.
+    Color/threshold-based removal, pixel-perfect for solid color backgrounds.
+    Samples the background color from the 4 corners and removes matching pixels:
+    with edges_only just the ones connected to the image border, so a highlight
+    in the background color inside the subject survives. Otherwise all of them.
     Works great for product shots on white/solid backgrounds.
     """
     if input_image is None:
         return None
 
     img = Image.fromarray(input_image).convert("RGBA")
-    data = np.array(img, dtype=np.float32)
+    data = np.asarray(img)  # uint8 view, no float copy of the whole image: that tripled peak RAM at 40MP
 
-    # Sample background color from corners (5x5 patch average)
+    # Sample background color from corners (5x5 patch average). Median across the
+    # four, so one corner covered by the subject doesn't skew it.
     corners = [
         data[:5, :5],
         data[:5, -5:],
         data[-5:, :5],
         data[-5:, -5:],
     ]
-    bg_color = np.mean([c.mean(axis=(0, 1)) for c in corners], axis=0)[:3]
+    bg_color = np.median([c.mean(axis=(0, 1)) for c in corners], axis=0)[:3]
 
-    # Compute per-pixel distance from bg color
-    rgb = data[:, :, :3]
-    diff = np.sqrt(np.sum((rgb - bg_color) ** 2, axis=2))
+    # Squared per-pixel distance from bg color, one channel at a time to keep the temporaries small
+    dist2 = np.zeros(data.shape[:2], dtype=np.float32)
+    for c in range(3):
+        ch = data[:, :, c].astype(np.float32)
+        ch -= bg_color[c]
+        ch *= ch
+        dist2 += ch
 
     # Build alpha mask
-    alpha = np.where(diff <= tolerance, 0, 255).astype(np.uint8)
+    match = dist2 <= tolerance ** 2
+    if edges_only:
+        # label 0 is the non-matching rest, every other label is one 4-connected matching region
+        labels, n = ndimage.label(match)  # default structure is 4-connectivity
+        keep = np.zeros(n + 1, dtype=bool)
+        keep[np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]])] = True
+        keep[0] = False
+        match = keep[labels]
+    alpha = np.where(match, np.uint8(0), np.uint8(255))  # typed scalars: plain ints would build an int64 array first
 
-    # Optional edge smoothing — feathers the transition
+    # Optional edge smoothing, feathers the transition
     if edge_smooth > 0:
         alpha_img = Image.fromarray(alpha)
         alpha_img = alpha_img.filter(ImageFilter.GaussianBlur(radius=edge_smooth))
         alpha = np.array(alpha_img)
 
-    # keep anything the source already made transparent — putalpha would undo it
-    alpha = np.minimum(alpha, data[:, :, 3].astype(np.uint8))
+    # keep anything the source already made transparent, putalpha would undo it
+    alpha = np.minimum(alpha, data[:, :, 3])
 
-    result = img.copy()
-    result.putalpha(Image.fromarray(alpha))
-
-    return apply_output_format(result, output_format)
+    img.putalpha(Image.fromarray(alpha))
+    return apply_output_format(img, output_format)
 
 
 # UI
@@ -197,7 +211,7 @@ THEME = Monochrome(
 )
 
 CSS = """
-/* gradio versions the class: .gradio-container-6-20-0 — match it whatever the version.
+/* gradio versions the class: .gradio-container-6-20-0, match it whatever the version.
    width:100% is load-bearing: the parent <gradio-app> is a column flex, so the auto
    margins below cancel cross-axis stretch and the container shrink-wraps to ~500px. */
 [class*="gradio-container"] {
@@ -242,7 +256,7 @@ h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 1.25rem; letter-spacing: -
 """
 
 # Dragging an image off a webpage carries a URL, not a file, so gradio's dropzone
-# rejects it — and gradio's own drag handlers swallow the drop before anything else
+# rejects it, and gradio's own drag handlers swallow the drop before anything else
 # sees it. Catch it first (capture phase) and feed the visible tab's URL field.
 #
 # Delivered via launch(head=...), NOT launch(js=...): gradio 6.20 accepts `js` and
@@ -267,7 +281,7 @@ HEAD = """
     const pane = [...document.querySelectorAll('.tabitem')].find(p => p.offsetParent !== null);
     const relay = pane && pane.querySelector('.url-relay');
     const box = relay && relay.querySelector('textarea, input[type="text"]');
-    if (!box) return;   // no URL relay on this tab — leave the drop alone
+    if (!box) return;   // no URL relay on this tab, leave the drop alone
     e.preventDefault(); e.stopPropagation();
     const proto = box.tagName === 'TEXTAREA' ? HTMLTextAreaElement : HTMLInputElement;
     Object.getOwnPropertyDescriptor(proto.prototype, 'value').set.call(box, url);
@@ -304,13 +318,13 @@ with gr.Blocks(title="Background Remover", fill_width=True) as app:
                     load_ai = gr.Button("load", elem_classes=["url-load-btn"])  # hidden via CSS: visible=False omits it from the DOM
                     btn_ai = gr.Button("Remove background", variant="primary")
                 with gr.Column(min_width=260):
-                    output_ai = gr.Image(label="Result", type="pil", image_mode="RGBA", interactive=False, sources=[])
+                    output_ai = gr.Image(label="Result", type="pil", image_mode="RGBA", format="png", interactive=False, sources=[])
 
             url_ai.submit(fn=load_url, inputs=url_ai, outputs=input_ai)
             load_ai.click(fn=load_url, inputs=url_ai, outputs=input_ai)
             btn_ai.click(fn=remove_bg_ai, inputs=[input_ai, fmt_ai], outputs=output_ai)
 
-        with gr.Tab("Solid colour"):
+        with gr.Tab("Solid color"):
             gr.Markdown("Product shots on a solid background. Pixel-perfect, no artifacts.")
             with gr.Row(equal_height=False):
                 with gr.Column(min_width=260):
@@ -330,16 +344,20 @@ with gr.Blocks(title="Background Remover", fill_width=True) as app:
                         minimum=0, maximum=5, value=1, step=0.5, label="Edge smoothing",
                         info="0 = hard edge."
                     )
+                    edges_only = gr.Checkbox(
+                        value=True, label="Only remove from the edges",
+                        info="Keeps background-colored spots inside the subject. Turn off to also clear enclosed areas, like the gap in a mug handle."
+                    )
                     load_col = gr.Button("load", elem_classes=["url-load-btn"])  # hidden via CSS: visible=False omits it from the DOM
                     btn_col = gr.Button("Remove background", variant="primary")
                 with gr.Column(min_width=260):
-                    output_col = gr.Image(label="Result", type="pil", image_mode="RGBA", interactive=False, sources=[])
+                    output_col = gr.Image(label="Result", type="pil", image_mode="RGBA", format="png", interactive=False, sources=[])
 
             url_col.submit(fn=load_url, inputs=url_col, outputs=input_col)
             load_col.click(fn=load_url, inputs=url_col, outputs=input_col)
             btn_col.click(
                 fn=remove_bg_color,
-                inputs=[input_col, fmt_col, tolerance, edge_smooth],
+                inputs=[input_col, fmt_col, tolerance, edge_smooth, edges_only],
                 outputs=output_col
             )
 
@@ -352,6 +370,7 @@ if __name__ == "__main__":
         server_port=int(os.getenv("PORT", "7860")),
         inbrowser=not os.path.exists("/.dockerenv"),
         auth=(user, password) if user else None,
+        max_file_size="100mb",  # same as the proxy's client_max_body_size
         theme=THEME,
         css=CSS,
         head=HEAD,

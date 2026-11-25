@@ -1,4 +1,4 @@
-"""Run: .venv/bin/python test_remove_bg.py"""
+"""Run: uv run test_remove_bg.py"""
 import numpy as np
 from remove_bg import remove_bg_color, apply_output_format
 
@@ -16,7 +16,7 @@ for fmt in ("White background", "Black background"):
     flat = apply_output_format(out, fmt)
     assert flat is not None and flat.mode == "RGB", fmt
 
-# An already-transparent input must stay transparent — gradio's Image defaults to
+# An already-transparent input must stay transparent: gradio's Image defaults to
 # image_mode="RGB", which silently flattens alpha onto black.
 rgba = np.full((40, 40, 4), 255, dtype=np.uint8)
 rgba[10:30, 10:30] = (255, 0, 0, 255)
@@ -26,9 +26,32 @@ a2 = np.array(out2)[:, :, 3]
 assert a2[2, 2] == 0, "pre-existing transparency must survive"
 assert a2[20, 20] == 255, "subject must stay opaque"
 
+# A background-colored patch enclosed by the subject (a highlight) is kept by default
+# and only cleared with edges_only off.
+hole = img.copy()
+hole[18:22, 18:22] = 255
+kept = np.array(remove_bg_color(hole, "PNG (transparent)", 30, 0))[:, :, 3]
+assert kept[0, 0] == 0 and kept[20, 20] == 255, "enclosed patch must stay opaque by default"
+assert kept[12, 12] == 255, "subject must stay opaque"
+cleared = np.array(remove_bg_color(hole, "PNG (transparent)", 30, 0, False))[:, :, 3]
+assert cleared[0, 0] == 0 and cleared[20, 20] == 0, "enclosed patch must clear with edges_only off"
+assert cleared[12, 12] == 255, "subject must stay opaque"
+
+# Subject covering one corner must not skew the sampled background color.
+cov = np.full((40, 40, 3), 255, dtype=np.uint8)
+cov[:20, :20] = (255, 0, 0)
+ac = np.array(remove_bg_color(cov, "PNG (transparent)", 30, 0))[:, :, 3]
+assert ac[0, 39] == 0 and ac[39, 0] == 0 and ac[39, 39] == 0, "uncovered corners should be transparent"
+assert ac[2, 2] == 255, "subject in the corner should stay opaque"
+
+# "PNG (transparent)" must download as PNG: gr.Image defaults to format="webp".
+import remove_bg  # noqa: E402
+for comp in (remove_bg.output_ai, remove_bg.output_col):
+    assert comp.postprocess(out).path.endswith(".png"), comp.postprocess(out).path
+
 
 # SSRF guard: the fetch runs server-side from a public app, so nothing that
-# resolves off the public internet may be reachable — including via a redirect.
+# resolves off the public internet may be reachable, including via a redirect.
 import socket  # noqa: E402
 from remove_bg import load_url, _public_ip, _HttpOnlyRedirects, _PinnedHTTPConnection, _decode  # noqa: E402
 

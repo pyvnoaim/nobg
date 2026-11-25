@@ -483,6 +483,7 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "pillow" },
     { name = "rembg" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
@@ -492,6 +493,7 @@ requires-dist = [
     { name = "onnxruntime", specifier = "==1.27.0" },
     { name = "pillow", specifier = "==12.3.0" },
     { name = "rembg", specifier = "==2.0.76" },
+    { name = "scipy", specifier = "==1.18.1" },
 ]
 
 [[package]]
