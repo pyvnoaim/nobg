@@ -16,12 +16,20 @@ from gradio.themes import Monochrome  # gradio doesn't re-export `themes` on the
 from rembg import remove, new_session
 from PIL import Image, ImageFilter
 import numpy as np
+import http.client
 import io
 import ipaddress
 import os
 import socket
 import urllib.parse
 import urllib.request
+import warnings
+
+# A tiny file can declare a huge canvas (a decompression bomb): the 50MB fetch cap and the upload limit only see the
+# file, not the pixels. Pillow checks the declared size before decoding, so cap it here, for uploads and URLs alike.
+# ponytail: 40MP covers any camera photo; isnet peaked ~1.6GB at 12MP, raise with care against the 3g mem_limit.
+Image.MAX_IMAGE_PIXELS = 40_000_000
+warnings.simplefilter("error", Image.DecompressionBombWarning)
 
 # isnet: 179MB, 1024² input, mask upscaled to full res. birefnet-general is cleaner
 # but a 1GB download and peaks at 8-13GB RAM — it got OOM-killed on the VPS.
@@ -51,32 +59,55 @@ def apply_output_format(result_rgba, output_format):
 MAX_FETCH_BYTES = 50 * 1024 * 1024
 
 
-def _require_public_host(url):
+def _public_ip(host):
     """
     This fetch runs server-side from a publicly reachable app, so an arbitrary URL
     is an SSRF probe into the VPS: http://127.0.0.1:9000 or the cloud metadata
     address at 169.254.169.254 would otherwise be reachable, with hit/miss leaking
-    through timing and error differences. Reject anything not globally routable.
+    through timing and error differences. Reject anything not globally routable,
+    and return the checked address so the caller connects to exactly that one: a
+    second lookup could answer differently (DNS rebinding).
     """
-    host = urllib.parse.urlparse(url).hostname
     if not host:
         raise gr.Error("That URL has no host.")
     try:
-        infos = socket.getaddrinfo(host, None)
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
     except socket.gaierror:
         raise gr.Error("Could not resolve that host.")
     for info in infos:
         if not ipaddress.ip_address(info[4][0]).is_global:
             raise gr.Error("That host is not publicly routable.")
+    return infos[0][4][0]
 
 
-class _PublicOnlyRedirects(urllib.request.HTTPRedirectHandler):
-    """A public URL can 302 straight to 127.0.0.1, so re-check every hop."""
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def connect(self):
+        self.sock = socket.create_connection((_public_ip(self.host), self.port), self.timeout)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self):
+        sock = socket.create_connection((_public_ip(self.host), self.port), self.timeout)
+        # TLS and the Host header still use the name, only the TCP connection goes to the checked IP.
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _PinnedHTTP(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_PinnedHTTPConnection, req)
+
+
+class _PinnedHTTPS(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
+
+
+class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """A public URL can 302 anywhere; every hop connects through the pinned handlers above, so only the scheme is left."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not newurl.startswith(("http://", "https://")):
             raise gr.Error("Redirect to a non-http scheme was blocked.")
-        _require_public_host(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -87,14 +118,21 @@ def load_url(url):
         return None
     if not url.startswith(("http://", "https://")):
         raise gr.Error("Only http:// and https:// URLs are supported.")
-    _require_public_host(url)
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    opener = urllib.request.build_opener(_PublicOnlyRedirects)
+    # ProxyHandler({}): never route through an environment proxy, which would make the IP check meaningless.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _PinnedHTTP, _PinnedHTTPS, _HttpOnlyRedirects)
     with opener.open(req, timeout=15) as r:
         data = r.read(MAX_FETCH_BYTES + 1)
     if len(data) > MAX_FETCH_BYTES:
         raise gr.Error("Image is larger than 50MB.")
-    return np.array(Image.open(io.BytesIO(data)).convert("RGBA"))
+    return _decode(data)
+
+
+def _decode(data):
+    try:
+        return np.array(Image.open(io.BytesIO(data)).convert("RGBA"))
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise gr.Error("Image is larger than 40 megapixels.")
 
 
 def remove_bg_ai(input_image, output_format):
