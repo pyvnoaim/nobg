@@ -135,6 +135,18 @@ finally:
     remove_bg._public_ip, remove_bg.FETCH_SECONDS = real_ip, real_seconds
 assert time.monotonic() - started < 5, f"the fetch deadline took {time.monotonic() - started:.1f}s to fire"
 
+# A connection opened after the deadline has fired, by a redirect that lands just past it, is refused and closed.
+late = socket.socket()
+remove_bg._fetching.socks, remove_bg._fetching.expired = [], threading.Event()
+remove_bg._fetching.expired.set()
+try:
+    remove_bg._track(late)
+    raise AssertionError("a socket opened after the deadline was accepted")
+except OSError:
+    assert late.fileno() == -1, "the late socket must be closed"
+finally:
+    remove_bg._fetching.socks, remove_bg._fetching.expired = [], None
+
 
 def encoded(image, fmt="PNG", **options):
     buf = io.BytesIO()

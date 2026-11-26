@@ -128,6 +128,12 @@ _fetching = threading.local()
 
 def _track(sock):
     getattr(_fetching, "socks", []).append(sock)
+    # Listed first, checked second: either the timer finds this socket in the list, or this check finds the timer
+    # has fired. Without it a redirect that lands just after the deadline would open a socket nothing ever cuts off.
+    expired = getattr(_fetching, "expired", None)
+    if expired and expired.is_set():
+        sock.close()
+        raise OSError("the fetch deadline has passed")
     return sock
 
 
@@ -182,7 +188,8 @@ def fetch_url(url):
     # it fires it shuts every socket this fetch opened, and whatever was waiting on them fails at once.
     too_slow = UserError("That link took too long to load", "Save the image and drop the file instead.")
     _fetching.socks = socks = []
-    expired = threading.Event()
+    _fetching.expired = expired = threading.Event()
+    deadline = time.monotonic() + FETCH_SECONDS
 
     def cut_off():
         expired.set()
@@ -201,6 +208,8 @@ def fetch_url(url):
                 size += len(chunk)
                 if size > MAX_FETCH_BYTES:
                     raise UserError("That image is over 50 MB", "Save a smaller version and drop the file.", 413)
+                if time.monotonic() > deadline:  # a second line behind the timer
+                    raise too_slow
                 chunks.append(chunk)
     except (OSError, http.client.HTTPException, ValueError):
         if expired.is_set():
@@ -208,7 +217,7 @@ def fetch_url(url):
         raise UserError("That link could not be loaded", "Save the image and drop the file instead.")
     finally:
         timer.cancel()
-        _fetching.socks = []
+        _fetching.socks, _fetching.expired = [], None
     if expired.is_set():  # a shut socket can also read as a clean end of data
         raise too_slow
     return b"".join(chunks)
