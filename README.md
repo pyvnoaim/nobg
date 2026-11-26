@@ -1,15 +1,15 @@
 # nobg
 
-Self-hosted background remover with a web UI, built on [rembg](https://github.com/danielgatis/rembg) and [Gradio](https://www.gradio.app).
+Self-hosted background remover with its own web interface, built on [rembg](https://github.com/danielgatis/rembg).
 
 | Mode | Use it for | How it works |
 | --- | --- | --- |
 | AI | Complex or unknown backgrounds | `isnet-general-use` segmentation model |
 | Solid color | Product shots on a solid background | Color threshold on pixels connected to the image border, enclosed areas optional, no model |
 
-Images come from upload, clipboard, or a URL dragged in from another page.
+Drop an image anywhere on the page, paste it, or drag one in from another website. The cutout appears in place, with a handle to compare it against the original. Download or copy it as a PNG on a transparent, white or black background.
 
-![Solid color mode removing a white background while keeping the white label](docs/screenshot.png)
+![A bottle half revealed as a cutout by the compare handle, with the controls below](docs/screenshot.png)
 
 ## Run
 
@@ -32,13 +32,16 @@ The AI model (about 180 MB) downloads on first use of AI mode. Solid color mode 
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `APP_AUTH` | unset | `user:password` enables the built-in login |
+| `APP_AUTH` | unset | `user:password` enables the built-in login (HTTP Basic) |
 | `U2NET_HOME` | `/models` in the image | Model cache directory |
 | `PORT` | `7860` | Port the app listens on |
+| `HOST` | `127.0.0.1`, `0.0.0.0` in the image | Address the app listens on |
 
 ## Limits
 
 - Images over 40 megapixels are refused.
+- Accepted formats are PNG, JPEG, WebP, GIF, BMP and AVIF.
+- Uploaded images are held in memory for up to 30 minutes, so settings can change without a new upload. Nothing is written to disk.
 - Uploads over 100 MB and URL fetches over 50 MB are refused.
 - URL fetches accept only `http` and `https` and only publicly routable hosts.
 - AI mode peaks at about 1.6 GB RAM on a 12 MP image. The container limit is 3 GB.
@@ -61,9 +64,10 @@ The container publishes no host port. It joins the external `websites` network a
 
 The proxy must provide:
 
-- WebSocket support. Without it the UI loads but every button hangs.
-- Unbuffered responses, 100 MB request bodies, and 300 s timeouts.
-- Authentication, unless `APP_AUTH` is set.
+- 100 MB request bodies and 300 s timeouts. AI mode on a slow CPU can pass the usual 60 s.
+- Authentication, unless `APP_AUTH` is set. Use one or the other, since both are HTTP Basic and a browser sends only one login.
+
+Plain HTTP is enough. The page needs no WebSockets.
 
 For nginx or Nginx Proxy Manager (Advanced tab):
 
@@ -71,8 +75,6 @@ For nginx or Nginx Proxy Manager (Advanced tab):
 client_max_body_size 100m;
 proxy_read_timeout 300s;
 proxy_send_timeout 300s;
-proxy_buffering off;
-proxy_cache off;
 ```
 
 With a Nginx Proxy Manager Access List, add `Allow 0.0.0.0/0` under Rules. An empty rule list denies everyone with a `403`.

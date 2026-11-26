@@ -1,6 +1,6 @@
 # nobg
 
-Gradio background remover over `rembg`. One module: `remove_bg.py`.
+Background remover over `rembg`. `remove_bg.py` is the whole server (Starlette). `static/` is the whole page (plain HTML, CSS, JS, no build step).
 
 ## Commands
 
@@ -16,6 +16,8 @@ uv add <pkg> / uv lock     # deps live in pyproject.toml + uv.lock, both committ
 - Container limit is 3g. AI mode peaks ~1.6GB on 12MP. Anything that raises peak RAM needs measuring.
 - Images over 40MP are refused before decoding, and URL fetches dial only the IP they checked. Don't weaken either.
 - Python 3.12, same in `pyproject.toml` and the `Dockerfile`.
+- The page loads nothing from other origins and has no inline script or style. The CSP in `remove_bg.py` enforces it.
+- No accent color in the interface. Feedback comes from motion. Transitions and entrances share one easing curve (`--ease`), only the looping and error animations differ.
 
 ## Deploy
 

@@ -13,8 +13,10 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-cache --compile-bytecode
 ENV PATH="/app/.venv/bin:$PATH"
 COPY remove_bg.py .
+COPY static static
 
-ENV U2NET_HOME=/models
+# HOST: the app only listens on this machine unless told otherwise, and the proxy must reach the container.
+ENV U2NET_HOME=/models HOST=0.0.0.0
 # Run as a fixed non-root uid/gid. numba (via pymatting) caches under the home directory.
 # /models is owned by that uid so a new or empty volume mounted there becomes writable.
 RUN useradd --uid 1000 --create-home app && install -d -o app -g app /models

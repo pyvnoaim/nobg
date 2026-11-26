@@ -1,0 +1,151 @@
+/* No accent color on purpose: the image is the only color on screen, and feedback comes from motion. */
+:root {
+  --ground: #f3f3f3; --surface: #fff; --ink: #161616; --muted: #666; --line: #dcdcdc; --soft: #e9e9e9;
+  --c1: #e6e6e6; --c2: #fafafa;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 24px 48px -20px rgba(0, 0, 0, .2);
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0f0f0f; --surface: #1b1b1b; --ink: #f2f2f2; --muted: #a0a0a0; --line: #303030; --soft: #262626;
+    --c1: #222; --c2: #2b2b2b;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 24px 48px -20px rgba(0, 0, 0, .8);
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; padding: 28px 40px 36px; min-height: 100%;
+  display: flex; flex-direction: column; gap: 24px;
+  background: var(--ground); color: var(--ink);
+  font: 15px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+p, h1 { margin: 0; }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; padding: 0;
+  transition: transform .14s var(--ease), background-color .2s, color .2s, opacity .2s; }
+button:active { transform: scale(.97); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+h1 { font-size: 20px; font-weight: 600; letter-spacing: -.03em; }
+
+.seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; background: var(--soft); border-radius: 999px; }
+.seg button { position: relative; min-width: 116px; min-height: 40px; padding: 0 16px; border-radius: 999px; font-weight: 500; color: var(--muted); }
+.seg button[aria-pressed="true"] { color: var(--ink); }
+.seg-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px;
+  background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, .14); transition: transform .3s var(--ease); }
+[data-mode="color"] .seg-thumb { transform: translateX(100%); }
+
+main { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.invite, .error, .stage { display: none; flex-direction: column; align-items: center; text-align: center; }
+[data-phase="empty"] .invite, [data-phase="fetching"] .invite { display: flex; gap: 18px; }
+[data-phase="error"] .error { display: flex; gap: 14px; animation: shake .36s cubic-bezier(.36, .07, .19, .97) both; }
+[data-phase="working"] .stage, [data-phase="done"] .stage { display: flex; gap: 20px; width: 100%; }
+[data-phase="fetching"] .invite .link, [data-phase="fetching"] .invite .hint { visibility: hidden; }
+
+.title { font-size: clamp(38px, 9vw, 64px); font-weight: 500; letter-spacing: -.045em; line-height: 1; }
+.error .title { font-size: clamp(28px, 6vw, 40px); letter-spacing: -.035em; line-height: 1.05; max-width: 18ch; }
+.hint { color: var(--muted); max-width: 44ch; }
+.error .hint { font-size: 17px; }
+.link { min-height: 44px; padding: 0 6px; font-size: 18px; text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 1px; }
+.primary { min-height: 44px; padding: 0 22px; border-radius: 999px; background: var(--ink); color: var(--ground); font-weight: 500; }
+.error .primary { min-height: 48px; margin-top: 6px; font-size: 16px; }
+
+/* --ratio is the image's width over height, --pos where the compare line sits. Both are set by app.js. */
+.card { --ratio: 1.5; --pos: 0%; position: relative; aspect-ratio: var(--ratio);
+  width: min(100%, 720px, calc(58vh * var(--ratio))); border-radius: 20px; background: var(--surface);
+  box-shadow: var(--shadow); user-select: none; -webkit-user-select: none; animation: arrive .4s var(--ease) both; }
+.card:has(#wipe:focus-visible) { outline: 2px solid var(--ink); outline-offset: 4px; }
+.clip { position: absolute; inset: 0; border-radius: 20px; overflow: hidden; }
+.clip img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.backdrop, .before, .veil { position: absolute; inset: 0; }
+.checker, [data-bg="checker"] .backdrop, .before { background: repeating-conic-gradient(var(--c1) 0% 25%, var(--c2) 0% 50%) 50% / 20px 20px; }
+.white, [data-bg="white"] .backdrop { background: #fff; }
+.black, [data-bg="black"] .backdrop { background: #000; }
+/* The original sits on top and is clipped away from the left, exactly at the line. */
+.before { clip-path: inset(0 0 0 var(--pos)); }
+#after { transition: opacity .2s .25s; }
+#after:not([src]) { visibility: hidden; }
+[data-busy] #after { opacity: .55; }
+.veil { display: none; background: var(--ground); animation: breathe 1.8s ease-in-out infinite; }
+[data-phase="working"] .veil { display: block; }
+
+.line, .knob, .hit, #wipe { display: none; }
+[data-phase="done"] .line, [data-phase="done"] .hit, [data-phase="done"] #wipe { display: block; }
+[data-phase="done"] .knob { display: flex; }
+/* Difference blending keeps the line visible on any image without an outline. */
+.line { position: absolute; top: 0; bottom: 0; left: var(--pos); width: 1.5px; margin-left: -.75px; background: #fff; mix-blend-mode: difference; pointer-events: none; }
+.knob { position: absolute; top: 50%; left: var(--pos); width: 38px; height: 38px; margin: -19px 0 0 -19px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .06), 0 4px 14px rgba(0, 0, 0, .18);
+  align-items: center; justify-content: center; pointer-events: none; transition: transform .16s var(--ease); }
+.knob svg { width: 18px; height: 18px; fill: none; stroke: #161616; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+[data-dragging] .knob { transform: scale(1.08); }
+[data-edge] .line { opacity: 0; }
+/* 22px wider than the image on both sides, so the knob can be grabbed when it sits on an edge. */
+.hit { position: absolute; top: 0; bottom: 0; left: -22px; right: -22px; touch-action: none; cursor: ew-resize; }
+[data-dragging] .hit { cursor: grabbing; }
+#wipe { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }
+
+.progress { width: min(100%, 280px); display: flex; flex-direction: column; align-items: center; gap: 12px; transition: opacity .3s; }
+[data-phase="done"] .progress { opacity: 0; }
+.track { width: 100%; height: 2px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.fill { --p: 0; height: 100%; background: var(--ink); transform-origin: left; transform: scaleX(var(--p)); transition: transform .6s cubic-bezier(.3, .7, .2, 1); }
+#stage, #note { min-height: 21px; color: var(--muted); }
+
+/* The controls take the slot the progress line leaves behind, so nothing below the image moves. */
+.controls { display: none; flex-direction: column; align-items: center; gap: 14px; width: min(100%, 720px); margin-top: -55px; }
+[data-ready] .controls { display: flex; animation: rise .36s var(--ease) both; }
+.bar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; padding: 6px; border-radius: 28px; background: var(--surface); box-shadow: var(--shadow); }
+.quiet { min-height: 44px; padding: 0 16px; border-radius: 999px; font-weight: 500; }
+.quiet:hover, .quiet[aria-expanded="true"] { background: var(--soft); }
+#copy { min-width: 76px; }
+[data-mode="ai"] #adjust { display: none; }
+.swatches { display: flex; gap: 2px; padding: 0 4px; }
+.swatches button { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.dot { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background-size: 10px 10px; transition: box-shadow .2s var(--ease); }
+.swatches [aria-pressed="true"] .dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink); }
+#download { min-width: 132px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+#download svg { display: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#download[data-saved] svg { display: block; animation: rise .3s var(--ease) both; }
+
+.panel { width: 100%; padding: 6px 22px 10px; border-radius: 20px; background: var(--surface); box-shadow: var(--shadow);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 28px; text-align: left; animation: rise .36s var(--ease) both; }
+.panel label { flex: 1 1 180px; display: flex; flex-direction: column; font-size: 14px; font-weight: 500; }
+.row { display: flex; justify-content: space-between; padding-top: 10px; }
+output { color: var(--muted); font-variant-numeric: tabular-nums; }
+.panel input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 44px; margin: 0; background: transparent; cursor: pointer; }
+.panel input[type="range"]::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: var(--line); }
+.panel input[type="range"]::-moz-range-track { height: 2px; border-radius: 2px; background: var(--line); }
+.panel input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -10px; border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, .2); transition: transform .16s var(--ease); }
+.panel input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, .2); }
+.panel input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.12); }
+.switch { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 14px; font-weight: 500; }
+.switch:active { transform: none; }
+.switch-track { position: relative; width: 44px; height: 26px; border-radius: 999px; background: var(--line); transition: background-color .25s; }
+.switch-knob { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: transform .25s var(--ease); }
+.switch[aria-checked="true"] .switch-track { background: var(--ink); }
+.switch[aria-checked="true"] .switch-knob { transform: translateX(18px); }
+
+.ring { display: none; position: fixed; inset: 14px; border-radius: 26px; border: 1.5px solid var(--ink); pointer-events: none; animation: ring .24s var(--ease) both; }
+[data-over] .ring { display: block; }
+
+@keyframes arrive { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes shake { 10%, 90% { transform: translateX(-2px); } 30%, 70% { transform: translateX(4px); } 50% { transform: translateX(-6px); } }
+@keyframes breathe { 0%, 100% { opacity: .12; } 50% { opacity: .45; } }
+@keyframes ring { from { opacity: 0; transform: scale(1.015); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 600px) {
+  body { padding: 16px 24px 24px; gap: 16px; }  /* 24px at the sides: the knob rests half outside the image */
+  .seg button { min-width: 0; }
+  .card { width: min(100%, calc(46vh * var(--ratio))); }
+  .controls { margin-top: -51px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

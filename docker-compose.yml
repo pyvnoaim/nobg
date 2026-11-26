@@ -28,7 +28,7 @@ services:
     volumes:
       - models:/models   # 180MB model cache, downloads once, survives restarts
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:7860/')"]
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:7860/healthz')"]
       interval: 30s
       timeout: 60s
       start_period: 60s
