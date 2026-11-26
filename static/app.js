@@ -247,6 +247,8 @@
     return res.blob;
   }
 
+  const size = (n) => n < 1e6 ? Math.max(1, Math.round(n / 1e3)) + ' KB' : (n / 1e6).toFixed(1) + ' MB';
+
   function flash(button, label, text, message) {
     label.textContent = text;
     flag(button, 'saved', true);
@@ -257,7 +259,7 @@
 
   async function download() {
     const button = $('download'), label = $('download-label');
-    const name = S.stem + '-nobg.png';
+    const name = S.stem + '-nobg.png', was = S.file.size;
     const slow = setTimeout(() => { label.textContent = 'Preparing'; }, 300);
     try {
       const blob = await fullBlob();
@@ -266,7 +268,7 @@
       a.download = name;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-      flash(button, label, 'Saved', 'Saved ' + a.download);
+      flash(button, label, 'Saved', 'Saved ' + a.download + ', ' + size(was) + ' → ' + size(blob.size));
     } catch (err) {
       label.textContent = button.dataset.label;
       if (!err.replaced) note(err.error || 'The download failed. Try again.', 4000);
