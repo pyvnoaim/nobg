@@ -122,16 +122,27 @@ def _public_ip(host):
     return infos[0][4][0]
 
 
+# The sockets of the fetch running in this thread, so its deadline can cut them off. See fetch_url.
+_fetching = threading.local()
+
+
+def _track(sock):
+    getattr(_fetching, "socks", []).append(sock)
+    return sock
+
+
 class _PinnedHTTPConnection(http.client.HTTPConnection):
     def connect(self):
-        self.sock = socket.create_connection((_public_ip(self.host), self.port), self.timeout)
+        self.sock = _track(socket.create_connection((_public_ip(self.host), self.port), self.timeout))
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     def connect(self):
         sock = socket.create_connection((_public_ip(self.host), self.port), self.timeout)
         # TLS and the Host header still use the name, only the TCP connection goes to the checked IP.
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        # The handshake runs after tracking, so a server stalling inside it is cut off as well.
+        self.sock = _track(self._context.wrap_socket(sock, server_hostname=self.host, do_handshake_on_connect=False))
+        self.sock.do_handshake()
 
 
 class _PinnedHTTP(urllib.request.HTTPHandler):
@@ -166,9 +177,23 @@ def fetch_url(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     # ProxyHandler({}): never route through an environment proxy, which would make the IP check meaningless.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _PinnedHTTP, _PinnedHTTPS, _HttpOnlyRedirects)
-    # The socket timeout only bounds one wait for data, so a server dripping a byte at a time could hold this open
-    # for days. read1 returns whatever has arrived, which lets the deadline be checked after every wait.
-    deadline = time.monotonic() + FETCH_SECONDS
+    # The socket timeout only bounds one wait for data, so a server dripping a byte at a time, in the handshake,
+    # the headers, a redirect or the body, could hold this open for days. One timer covers the whole fetch: when
+    # it fires it shuts every socket this fetch opened, and whatever was waiting on them fails at once.
+    too_slow = UserError("That link took too long to load", "Save the image and drop the file instead.")
+    _fetching.socks = socks = []
+    expired = threading.Event()
+
+    def cut_off():
+        expired.set()
+        for sock in list(socks):
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # already closed
+
+    timer = threading.Timer(FETCH_SECONDS, cut_off)
+    timer.start()
     chunks, size = [], 0
     try:
         with opener.open(req, timeout=10) as r:
@@ -176,11 +201,16 @@ def fetch_url(url):
                 size += len(chunk)
                 if size > MAX_FETCH_BYTES:
                     raise UserError("That image is over 50 MB", "Save a smaller version and drop the file.", 413)
-                if time.monotonic() > deadline:
-                    raise UserError("That link took too long to load", "Save the image and drop the file instead.")
                 chunks.append(chunk)
     except (OSError, http.client.HTTPException, ValueError):
+        if expired.is_set():
+            raise too_slow
         raise UserError("That link could not be loaded", "Save the image and drop the file instead.")
+    finally:
+        timer.cancel()
+        _fetching.socks = []
+    if expired.is_set():  # a shut socket can also read as a clean end of data
+        raise too_slow
     return b"".join(chunks)
 
 
@@ -353,7 +383,8 @@ def _fail(e):
 def limited(handler):
     async def wrapped(request):
         global _busy
-        counted = "id" not in request.query_params
+        # Decided by what the handler will do, not by whether the word "id" appears: an empty id still uploads.
+        counted = request.url.path != "/api/remove" or not request.query_params.get("id")
         if counted and _busy >= MAX_BUSY:
             # Let the upload finish arriving, unkept. Answering while the browser is still sending makes it report
             # a dropped connection, and the person would never see why.

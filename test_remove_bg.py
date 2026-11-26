@@ -105,6 +105,37 @@ refused(_HttpOnlyRedirects().redirect_request, None, None, 302, "Found", {}, "fi
         why="redirect guard let through a file:// URL")
 
 
+# A server that drips its answer a byte at a time, headers included, is cut off by one deadline for the whole fetch.
+drip = socket.socket()
+drip.bind(("127.0.0.1", 0))
+drip.listen(1)
+
+
+def drip_forever():
+    conn, _ = drip.accept()
+    conn.recv(4096)
+    try:
+        for byte in b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nX-Pad: " + b"a" * 5000:
+            conn.send(bytes([byte]))
+            time.sleep(0.2)
+    except OSError:
+        pass  # cut off, as intended
+
+
+threading.Thread(target=drip_forever, daemon=True).start()
+real_ip, real_seconds = remove_bg._public_ip, remove_bg.FETCH_SECONDS
+remove_bg._public_ip, remove_bg.FETCH_SECONDS = (lambda host: "127.0.0.1"), 1
+started = time.monotonic()
+try:
+    fetch_url(f"http://drip.test:{drip.getsockname()[1]}/x.png")
+    raise AssertionError("a dripping server was read to the end")
+except UserError as e:
+    assert "too long" in str(e), e
+finally:
+    remove_bg._public_ip, remove_bg.FETCH_SECONDS = real_ip, real_seconds
+assert time.monotonic() - started < 5, f"the fetch deadline took {time.monotonic() - started:.1f}s to fire"
+
+
 def encoded(image, fmt="PNG", **options):
     buf = io.BytesIO()
     image.save(buf, fmt, **options)
@@ -226,6 +257,9 @@ remove_bg.MAX_UPLOAD_BYTES = limit
 
 remove_bg._busy = remove_bg.MAX_BUSY
 assert call("/api/remove?mode=color", encoded(sample))[0] == 503, "busy cap"
+assert call("/api/remove?mode=color&id=", encoded(sample))[0] == 503, "an empty id still uploads, so it must count"
+assert call("/api/fetch?id=x", b"http://example.com/x.png")[0] == 503, "a fetch always counts"
+assert call(f"/api/remove?mode=color&id={key}", b"")[0] == 200, "an image already here holds nothing and is let through"
 remove_bg._busy = 0
 
 # The URL fetch over HTTP keeps the same guard.
